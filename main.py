@@ -44,7 +44,21 @@ CLEANUP_AFTER_SEND = os.getenv("CLEANUP_AFTER_SEND", "true").lower() in {
     "yes",
 }
 
-logging.basicConfig(level=logging.INFO)
+# Configure logging level from env
+def _parse_log_level(value: str) -> int:
+    try:
+        # Allow numeric levels
+        return int(value)
+    except ValueError:
+        lvl = value.strip().upper()
+        return getattr(logging, lvl, logging.INFO)
+
+LOG_LEVEL = _parse_log_level(os.getenv("LOG_LEVEL", "INFO"))
+logging.basicConfig(
+    level=LOG_LEVEL,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
 logger = logging.getLogger(__name__)
 
 # In-memory session cache (persisted minimally to disk for resilience)

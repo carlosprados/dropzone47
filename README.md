@@ -1,5 +1,9 @@
 # dropzone47
 
+![Python](https://img.shields.io/badge/python-3.11%2B-blue)
+![python-telegram-bot](https://img.shields.io/badge/python--telegram--bot-22.x-28a745)
+![yt-dlp](https://img.shields.io/badge/yt--dlp-active-orange)
+
 Telegram bot to download YouTube content and send audio/video to the chat with size controls, configurable download folder, lightweight session persistence, visible progress (percent, speed, ETA), and cancel support.
 
 ## Requirements
@@ -27,6 +31,7 @@ Available variables:
 - `YTDLP_RETRIES`: retry count for `yt-dlp`. Default `3`.
 - `CLEANUP_AFTER_SEND`: whether to delete files after sending (`true`/`false`). In `.env.example` it's `false` to keep files.
 - `SESSIONS_DB`: base path for `shelve` persistence. Default `./downloads/sessions`.
+- `LOG_LEVEL`: logging verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`). Default `INFO`.
 
 ## Install & Run
 1) Create the bot with BotFather and copy the token.
