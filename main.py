@@ -464,32 +464,26 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
         with YoutubeDL({"quiet": True}) as ydl:
             info = ydl.extract_info(url, download=False)
     except Exception as e:
-        logger.error(f"Error al obtener info: {e}")
+        logger.error(f"Failed to fetch info: {e}")
         await message.reply_text("⚠️ Failed to fetch video info.")
         return
 
-    if info := info:
-        title = info.get("title") or ""
-        duration = info.get("duration")
-        thumbnail = info.get("thumbnail")
-        video_id = info.get("id") or ""
+    title = info.get("title") or ""
+    duration = info.get("duration")
+    thumbnail = info.get("thumbnail")
+    video_id = info.get("id") or ""
 
-        user_sessions[user_id] = {
-            "url": url,
-            "title": title,
-            "info": info,
-            "id": video_id,
-        }
-        save_session(user_id, user_sessions[user_id])
+    user_sessions[user_id] = {"url": url, "title": title, "info": info, "id": video_id}
+    save_session(user_id, user_sessions[user_id])
 
     keyboard = [
         [InlineKeyboardButton("🎵 Audio only", callback_data="audio")],
         [InlineKeyboardButton("🎬 Video only", callback_data="video")],
         [InlineKeyboardButton("📦 Both", callback_data="both")],
     ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+    reply_markup = InlineKeyboardMarkup(keyboard)
 
-        if thumbnail:
+    if thumbnail:
         await message.reply_photo(
             photo=thumbnail,
             caption=f"Title: {title}\nDuration: {humanize_duration(duration)}\nWhat would you like to download?",
