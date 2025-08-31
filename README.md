@@ -4,6 +4,8 @@
 ![python-telegram-bot](https://img.shields.io/badge/python--telegram--bot-22.x-28a745)
 ![yt-dlp](https://img.shields.io/badge/yt--dlp-active-orange)
 
+> Fast, size‑aware YouTube downloader bot for Telegram. Shows progress, supports cancel, and uploads real files with friendly filenames.
+
 Telegram bot to download YouTube content and send audio/video to the chat with size controls, configurable download folder, lightweight session persistence, visible progress (percent, speed, ETA), and cancel support.
 
 ## Requirements
@@ -77,3 +79,9 @@ During the download you'll see periodic progress updates in the caption of the o
   - By default under `./downloads` using the template `%(title).80s-%(id)s.%(ext)s`.
 - I get errors about FFmpeg.
   - Ensure `ffmpeg` is installed and available on your system `PATH`.
+
+## GitHub (About & Topics)
+- Repository description (copy into GitHub “About”):
+  - Telegram bot that downloads YouTube audio/video via yt-dlp, shows progress, and uploads actual files. Size-aware with automatic 480p/lower-bitrate fallback. Config via .env.
+- Suggested topics:
+  - `telegram-bot`, `python-telegram-bot`, `yt-dlp`, `youtube`, `downloader`, `ffmpeg`, `asyncio`, `python`, `bot`
