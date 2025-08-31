@@ -11,14 +11,14 @@ from datetime import datetime
 from typing import Dict, Any, List, Optional
 from yt_dlp import YoutubeDL
 
-# Carga variables desde .env si está disponible
+# Load variables from .env if available
 try:
     from dotenv import load_dotenv
 
-    # Carga .env en el directorio actual (no falla si no existe)
+    # Load .env in the current directory (won't fail if missing)
     load_dotenv(dotenv_path=os.path.join(os.getcwd(), ".env"))
 except Exception:
-    # Si python-dotenv no está instalado, seguimos usando variables del entorno
+    # If python-dotenv is not installed, rely on environment variables
     pass
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import (
@@ -64,7 +64,7 @@ def load_session(user_id: int) -> Optional[Dict[str, Any]]:
             if str(user_id) in db:
                 return dict(db[str(user_id)])
     except Exception as e:
-        logger.warning(f"No se pudo cargar sesión persistida: {e}\n")
+        logger.warning(f"Could not load persisted session: {e}\n")
     return None
 
 
@@ -73,7 +73,7 @@ def save_session(user_id: int, data: Dict[str, Any]) -> None:
         with shelve.open(SESSIONS_DB, writeback=True) as db:
             db[str(user_id)] = data
     except Exception as e:
-        logger.warning(f"No se pudo guardar sesión persistida: {e}")
+        logger.warning(f"Could not persist session: {e}")
 
 
 def delete_session(user_id: int) -> None:
@@ -82,12 +82,12 @@ def delete_session(user_id: int) -> None:
             if str(user_id) in db:
                 del db[str(user_id)]
     except Exception as e:
-        logger.warning(f"No se pudo eliminar sesión persistida: {e}")
+        logger.warning(f"Could not delete persisted session: {e}")
 
 
 def humanize_duration(seconds: Optional[int]) -> str:
     if seconds is None:
-        return "desconocida"
+        return "unknown"
     try:
         seconds = int(seconds)
     except Exception:
@@ -166,9 +166,9 @@ async def send_files(
                         document=InputFile(f, filename=os.path.basename(path)),
                     )
         except Exception as e:
-            logger.error(f"Error enviando archivo {path}: {e}")
+            logger.error(f"Error sending file {path}: {e}")
             await context.bot.send_message(
-                chat_id=chat_id, text=f"⚠️ No pude enviar {os.path.basename(path)}: {e}"
+                chat_id=chat_id, text=f"⚠️ Could not send {os.path.basename(path)}: {e}"
             )
 
 
@@ -251,7 +251,7 @@ def make_progress_hook(
                 loop.call_soon_threadsafe(asyncio.create_task, edit_caption_coro(txt))
         elif status == "finished":
             loop.call_soon_threadsafe(
-                asyncio.create_task, edit_caption_coro(f"📦 Procesando {label}…")
+                asyncio.create_task, edit_caption_coro(f"📦 Processing {label}…")
             )
 
     return hook
@@ -324,13 +324,11 @@ async def download_and_send_task(
     try:
         task["status"] = "downloading"
         task["updated_at"] = datetime.utcnow().isoformat(timespec="seconds")
-        await edit_caption(f"🔽 Descargando '{title}' como {choice}…")
+        await edit_caption(f"🔽 Downloading '{title}' as {choice}…")
 
         min_free_mb = max(TELEGRAM_MAX_MB * 2, 2000)
         if not has_enough_space(min_free_mb):
-            raise RuntimeError(
-                "Espacio insuficiente en disco para descargar de forma segura"
-            )
+            raise RuntimeError("Insufficient disk space for a safe download")
 
         if choice in {"video", "both"}:
             await ytdlp_download_with_progress(
@@ -339,17 +337,17 @@ async def download_and_send_task(
                 max_height=MAX_HEIGHT,
                 edit_caption_coro=edit_caption,
                 task=task,
-                label="vídeo",
+                label="video",
             )
             files = pick_files_for_choice(find_output_files(vid_id), "video")
             if not files:
-                raise RuntimeError("No se encontró el archivo de vídeo descargado")
+                raise RuntimeError("Downloaded video file not found")
             too_big = any(
                 (os.path.getsize(fp) / (1024 * 1024)) > TELEGRAM_MAX_MB for fp in files
             )
             if too_big:
                 await context.bot.send_message(
-                    chat_id=chat_id, text="⚠️ Vídeo grande; intentando 480p…"
+                    chat_id=chat_id, text="⚠️ Video too large; trying 480p…"
                 )
                 safe_cleanup(files)
                 await ytdlp_download_with_progress(
@@ -358,11 +356,11 @@ async def download_and_send_task(
                     max_height=min(480, MAX_HEIGHT),
                     edit_caption_coro=edit_caption,
                     task=task,
-                    label="vídeo (480p)",
+                    label="video (480p)",
                 )
                 files = pick_files_for_choice(find_output_files(vid_id), "video")
                 if not files:
-                    raise RuntimeError("No se encontró el archivo de vídeo (480p)")
+                    raise RuntimeError("Video file (480p) not found")
             task.setdefault("files", []).extend(files)
             task["status"] = "sending"
             task["updated_at"] = datetime.utcnow().isoformat(timespec="seconds")
@@ -379,17 +377,17 @@ async def download_and_send_task(
             )
             files = pick_files_for_choice(find_output_files(vid_id), "audio")
             if not files:
-                raise RuntimeError("No se encontró el archivo de audio descargado")
+                raise RuntimeError("Downloaded audio file not found")
             too_big = any(
                 (os.path.getsize(fp) / (1024 * 1024)) > TELEGRAM_MAX_MB for fp in files
             )
             if too_big:
                 await context.bot.send_message(
-                    chat_id=chat_id, text="⚠️ Audio grande; intentando menor bitrate…"
+                    chat_id=chat_id, text="⚠️ Audio too large; trying lower bitrate…"
                 )
                 safe_cleanup(files)
                 kbps = min(AUDIO_KBITRATE, 96)
-                # Ajusta temporalmente el bitrate en opts
+                # Temporarily adjust bitrate in opts
                 old = os.environ.get("AUDIO_KBITRATE", str(AUDIO_KBITRATE))
                 os.environ["AUDIO_KBITRATE"] = str(kbps)
                 try:
@@ -400,14 +398,12 @@ async def download_and_send_task(
                         edit_caption_coro=edit_caption,
                         task=task,
                         label=f"audio ({kbps}kbps)",
-                    )
+                )
                 finally:
                     os.environ["AUDIO_KBITRATE"] = old
                 files = pick_files_for_choice(find_output_files(vid_id), "audio")
                 if not files:
-                    raise RuntimeError(
-                        "No se encontró el archivo de audio (bitrate bajo)"
-                    )
+                    raise RuntimeError("Audio file (lower bitrate) not found")
             task.setdefault("files", []).extend(files)
             task["status"] = "sending"
             task["updated_at"] = datetime.utcnow().isoformat(timespec="seconds")
@@ -415,15 +411,15 @@ async def download_and_send_task(
 
         task["status"] = "done"
         task["updated_at"] = datetime.utcnow().isoformat(timespec="seconds")
-        await edit_caption(f"✅ Descarga completada de '{title}'")
+        await edit_caption(f"✅ Download completed for '{title}'")
     except asyncio.CancelledError:
         task["status"] = "canceled"
         task["updated_at"] = datetime.utcnow().isoformat(timespec="seconds")
-        await edit_caption("⛔ Descarga cancelada por el usuario")
+        await edit_caption("⛔ Download canceled by user")
     except Exception as e:
         task["status"] = "error"
         task["updated_at"] = datetime.utcnow().isoformat(timespec="seconds")
-        logger.error(f"Error en descarga/envío: {e}")
+        logger.error(f"Error during download/send: {e}")
         await edit_caption(f"⚠️ Error: {e}")
     finally:
         if CLEANUP_AFTER_SEND and user_downloads.get(user_id, {}).get("files"):
@@ -436,7 +432,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if message is None:
         return
     await message.reply_text(
-        "Hola, soy tu bot de descargas con 🧠. Envíame una URL de YouTube y te ayudaré paso a paso."
+        "Hi! I can download YouTube content for you. Send me a URL and choose audio, video, or both."
     )
 
 
@@ -448,14 +444,14 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = message.from_user.id if message.from_user else 0
 
     ensure_download_dir()
-    await message.reply_text("🔍 Obteniendo información del vídeo...")
+    await message.reply_text("🔍 Fetching video info…")
 
     try:
         with YoutubeDL({"quiet": True}) as ydl:
             info = ydl.extract_info(url, download=False)
     except Exception as e:
         logger.error(f"Error al obtener info: {e}")
-        await message.reply_text("⚠️ Error al obtener información del vídeo.")
+        await message.reply_text("⚠️ Failed to fetch video info.")
         return
 
     if info := info:
@@ -472,24 +468,24 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }
         save_session(user_id, user_sessions[user_id])
 
-        keyboard = [
-            [InlineKeyboardButton("🎵 Solo audio", callback_data="audio")],
-            [InlineKeyboardButton("🎬 Solo vídeo", callback_data="video")],
-            [InlineKeyboardButton("📦 Ambos", callback_data="both")],
-        ]
+    keyboard = [
+        [InlineKeyboardButton("🎵 Audio only", callback_data="audio")],
+        [InlineKeyboardButton("🎬 Video only", callback_data="video")],
+        [InlineKeyboardButton("📦 Both", callback_data="both")],
+    ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         if thumbnail:
-            await message.reply_photo(
-                photo=thumbnail,
-                caption=f"Título: {title}\nDuración: {humanize_duration(duration)}\n¿Qué deseas descargar?",
-                reply_markup=reply_markup,
-            )
-        else:
-            await message.reply_text(
-                text=f"Título: {title}\nDuración: {humanize_duration(duration)}\n¿Qué deseas descargar?",
-                reply_markup=reply_markup,
-            )
+        await message.reply_photo(
+            photo=thumbnail,
+            caption=f"Title: {title}\nDuration: {humanize_duration(duration)}\nWhat would you like to download?",
+            reply_markup=reply_markup,
+        )
+    else:
+        await message.reply_text(
+            text=f"Title: {title}\nDuration: {humanize_duration(duration)}\nWhat would you like to download?",
+            reply_markup=reply_markup,
+        )
 
 
 async def handle_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -503,14 +499,14 @@ async def handle_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not session:
         await query.edit_message_text(
-            "⚠️ Sesión no encontrada. Envíame la URL de nuevo."
+            "⚠️ Session not found. Please send the URL again."
         )
         return
 
     active = user_downloads.get(user_id)
     if active and active.get("status") in {"queued", "downloading", "sending"}:
         await query.message.reply_text(
-            "⚠️ Ya hay una descarga en curso. Usa /cancel para cancelarla."
+            "⚠️ A download is already in progress. Use /cancel to stop it."
         )
         return
 
@@ -536,7 +532,7 @@ async def handle_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "updated_at": datetime.utcnow().isoformat(timespec="seconds"),
     }
     await query.edit_message_caption(
-        caption=f"⏳ Puesto en cola: '{session.get('title')}' como {choice}…"
+        caption=f"⏳ Queued: '{session.get('title')}' as {choice}…"
     )
 
 
@@ -549,7 +545,7 @@ async def cmd_downloads(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     task = user_downloads.get(user_id)
     if not task:
-        await message.reply_text("No tienes descargas registradas.")
+        await message.reply_text("You have no recorded downloads.")
         return
     status = task.get("status")
     title = task.get("title")
@@ -557,7 +553,7 @@ async def cmd_downloads(update: Update, context: ContextTypes.DEFAULT_TYPE):
     created = task.get("created_at")
     updated = task.get("updated_at")
     await message.reply_text(
-        f"Tus descargas:\n- {title} [{choice}] → {status}\nCreada: {created}\nActualizada: {updated}"
+        f"Your downloads:\n- {title} [{choice}] → {status}\nCreated: {created}\nUpdated: {updated}"
     )
 
 
@@ -570,7 +566,7 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     task = user_downloads.get(user_id)
     if not task or task.get("status") not in {"queued", "downloading", "sending"}:
-        await message.reply_text("No hay descargas activas para cancelar.")
+        await message.reply_text("There are no active downloads to cancel.")
         return
     task["cancel"] = True
     proc = task.get("process")
@@ -582,7 +578,7 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     atask: Optional[asyncio.Task] = task.get("async_task")  # type: ignore[assignment]
     if atask and not atask.done():
         atask.cancel()
-    await message.reply_text("Solicitud de cancelación enviada. ⏹️")
+    await message.reply_text("Cancellation requested. ⏹️")
 
 
 async def cmd_clear_downloads(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -594,7 +590,7 @@ async def cmd_clear_downloads(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     task = user_downloads.get(user_id)
     if not task:
-        await message.reply_text("No hay descargas para limpiar.")
+        await message.reply_text("There are no downloads to clear.")
         return
     ids: List[str] = [i for i in {task.get("id")} if i]
     removed = 0
@@ -606,7 +602,7 @@ async def cmd_clear_downloads(update: Update, context: ContextTypes.DEFAULT_TYPE
             except Exception:
                 pass
     task["files"] = []
-    await message.reply_text(f"Limpieza completada. Archivos eliminados: {removed}")
+    await message.reply_text(f"Cleanup complete. Files removed: {removed}")
 
 
 def main():

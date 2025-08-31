@@ -1,64 +1,74 @@
 # dropzone47
 
-Bot de Telegram para descargar contenido de YouTube y enviar el audio/vídeo al chat con controles de tamaño, carpeta de descargas configurable, persistencia básica de sesión y progreso visible en el mensaje (porcentaje, velocidad y ETA), además de cancelación.
+Telegram bot to download YouTube content and send audio/video to the chat with size controls, configurable download folder, lightweight session persistence, visible progress (percent, speed, ETA), and cancel support.
 
-## Requisitos
+## Requirements
 - Python 3.11+
-- FFmpeg instalado y disponible en `PATH` (necesario para fusionar vídeo y extraer audio)
+- FFmpeg installed and available in `PATH` (required for merging video and extracting audio)
 
-## Configuración (.env)
-Este proyecto carga variables desde un fichero `.env` usando `python-dotenv`.
+## Configuration (.env)
+This project loads variables from a `.env` file via `python-dotenv`.
 
-1) Copia el ejemplo y edítalo:
+1) Copy the example and edit it:
 
 ```
 cp .env.example .env
 ```
 
-2) Completa al menos `TELEGRAM_BOT_TOKEN`.
+2) Fill at least `TELEGRAM_BOT_TOKEN`.
 
-Variables disponibles:
-- `TELEGRAM_BOT_TOKEN`: token del bot de Telegram (obligatorio).
-- `DOWNLOAD_DIR`: carpeta donde se guardan las descargas. Por defecto `./downloads`.
-- `TELEGRAM_MAX_MB`: tamaño máximo de archivo a enviar en MB. Por defecto `1900`.
-- `MAX_HEIGHT`: resolución máxima de vídeo (p. ej. `720`). Por defecto `720`.
-- `AUDIO_KBITRATE`: bitrate de audio MP3 (kbps). Por defecto `128`.
-- `SOCKET_TIMEOUT`: timeout de red para `yt-dlp` (s). Por defecto `30`.
-- `YTDLP_RETRIES`: reintentos de descarga de `yt-dlp`. Por defecto `3`.
-- `CLEANUP_AFTER_SEND`: si elimina los archivos tras enviarlos (`true`/`false`). En `.env.example` está en `false` para conservarlos.
-- `SESSIONS_DB`: ruta base del fichero `shelve` para sesiones. Por defecto `./downloads/sessions`.
+Available variables:
+- `TELEGRAM_BOT_TOKEN`: Telegram bot token (required).
+- `DOWNLOAD_DIR`: directory where downloads are stored. Default `./downloads`.
+- `TELEGRAM_MAX_MB`: max file size to send in MB. Default `1900`.
+- `MAX_HEIGHT`: max video resolution (e.g., `720`). Default `720`.
+- `AUDIO_KBITRATE`: MP3 audio bitrate (kbps). Default `128`.
+- `SOCKET_TIMEOUT`: network timeout for `yt-dlp` (s). Default `30`.
+- `YTDLP_RETRIES`: retry count for `yt-dlp`. Default `3`.
+- `CLEANUP_AFTER_SEND`: whether to delete files after sending (`true`/`false`). In `.env.example` it's `false` to keep files.
+- `SESSIONS_DB`: base path for `shelve` persistence. Default `./downloads/sessions`.
 
-## Instalación y uso
-1) Crea el bot con BotFather y copia el token.
-2) Prepara el entorno:
-- Con `uv` (recomendado si ya lo usas):
+## Install & Run
+1) Create the bot with BotFather and copy the token.
+2) Set up the environment:
+- With `uv` (if you already use it):
   - `uv sync`
-- Con `pip`:
+- With `pip`:
   - `python -m venv .venv && source .venv/bin/activate`
   - `pip install -e .`
 
-3) Configura el `.env` (ver sección anterior).
-4) Ejecuta el bot:
+3) Configure `.env` (see above).
+4) Start the bot:
 
 ```
 python main.py
 ```
 
-5) En Telegram, envía al bot una URL de YouTube. Verás título, duración y botones para elegir `audio`, `video` o `ambos`. El bot sube los ficheros al chat (no solo rutas) y usa nombres de archivo amigables.
+5) In Telegram, send the bot a YouTube URL. You'll see title, duration and buttons to choose `audio`, `video`, or `both`. The bot uploads the actual files (not just the path) with a friendly filename.
 
-### Comandos
-- `/downloads`: muestra el estado de tu descarga actual/reciente.
-- `/cancel`: cancela la descarga en curso (si la hay).
-- `/clear_downloads`: elimina archivos descargados asociados a tu última descarga.
+### Commands
+- `/downloads`: show status of your current/recent download.
+- `/cancel`: cancel the in-progress download (if any).
+- `/clear_downloads`: delete downloaded files associated with your last download.
 
-Durante la descarga verás actualizaciones periódicas del progreso en la leyenda del mensaje original (aprox. cada 5% o 2s, lo que ocurra antes).
+During the download you'll see periodic progress updates in the caption of the original message (about every 5% or 2s, whichever comes first).
 
-## Notas
-- El bot intenta mantener los archivos dentro del límite de tamaño configurado. Si un vídeo supera el límite, reintenta con menor resolución (p. ej. 480p). Para audio, reduce el bitrate si es necesario.
-- Las sesiones se guardan de forma ligera en disco, lo que permite continuar tras reinicios simples. No está pensado para alta concurrencia/multiproceso.
-- Para conservar los archivos localmente, usa `CLEANUP_AFTER_SEND=false`.
+## Notes
+- The bot tries to keep files under the configured size limit. If a video exceeds the limit, it retries with a lower resolution (e.g., 480p). For audio, it reduces bitrate if needed.
+- Sessions are stored lightly on disk to allow continuation after simple restarts. Not intended for high concurrency/multiprocessing.
+- To keep files locally, use `CLEANUP_AFTER_SEND=false`.
 
-## Desarrollo
-- Librerías principales: `python-telegram-bot 22.x`, `yt-dlp`, `python-dotenv`.
-- Subida de ficheros: se abren en binario y se pasan como file handle a `send_audio`/`send_video`/`send_document` con `filename` explícito para forzar upload real y un nombre visible.
-- Se usan `effective_message` y guards para evitar advertencias de Pyright con posibles `None` en `update.message`/`callback_query`.
+## Development
+- Main libraries: `python-telegram-bot 22.x`, `yt-dlp`, `python-dotenv`.
+- File uploads: files are opened in binary and passed as file handles to `send_audio`/`send_video`/`send_document` with an explicit `filename` to force a real upload and a visible name.
+- Uses `effective_message` and guard checks to avoid Pyright warnings around potential `None` for `update.message`/`callback_query`.
+
+## FAQ
+- Why don't I see downloaded files locally?
+  - Check `CLEANUP_AFTER_SEND`. If it's `true`, files are removed after sending. Set it to `false` to keep them.
+- Telegram says the file is too large. What can I do?
+  - Increase `TELEGRAM_MAX_MB` within Telegram limits or let the bot retry with a lower resolution/bitrate.
+- Where are files stored?
+  - By default under `./downloads` using the template `%(title).80s-%(id)s.%(ext)s`.
+- I get errors about FFmpeg.
+  - Ensure `ffmpeg` is installed and available on your system `PATH`.
