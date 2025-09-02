@@ -87,6 +87,7 @@ Notes:
 - If you mount a host directory to `/data`, ensure the container user can write to it. Options:
   - Run with your host UID/GID: `--user $(id -u):$(id -g)`
   - Or relax perms on the host dir: `chmod 777 downloads` (less secure)
+  - The bot writes temporary cache under `/data/.cache/yt-dlp` by default.
 
 ### Commands
 - `/downloads`: show status of your current/recent download.

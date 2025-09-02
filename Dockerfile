@@ -5,7 +5,7 @@ ENV PIP_NO_CACHE_DIR=1 \
     PYTHONUNBUFFERED=1 \
     DOWNLOAD_DIR=/data \
     HOME=/home/app \
-    XDG_CACHE_HOME=/home/app/.cache
+    XDG_CACHE_HOME=/data/.cache
 
 WORKDIR /app
 
@@ -26,7 +26,8 @@ COPY main.py README.md pyproject.toml ./
 RUN groupadd -r app \
     && useradd -m -d /home/app -r -g app app \
     && mkdir -p /data "$XDG_CACHE_HOME" \
-    && chown -R app:app /app /data /home/app
+    && chown -R app:app /app /home/app \
+    && chown -R 1000:1000 /data || true
 USER app:app
 
 # Entrypoint

@@ -78,7 +78,12 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await message.reply_text("🔍 Fetching video info…")
 
     try:
-        with YoutubeDL({"quiet": True}) as ydl:
+        # Use a cache directory under DOWNLOAD_DIR to avoid $HOME perms
+        from .config import DOWNLOAD_DIR
+        import os as _os
+        _cache = _os.path.join(DOWNLOAD_DIR, ".cache", "yt-dlp")
+        _os.makedirs(_cache, exist_ok=True)
+        with YoutubeDL({"quiet": True, "cachedir": _cache}) as ydl:
             info = ydl.extract_info(url, download=False)
     except Exception:
         await message.reply_text("⚠️ Failed to fetch video info.")
@@ -359,4 +364,3 @@ def run() -> None:
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_url))
     app.add_handler(CallbackQueryHandler(handle_choice))
     app.run_polling()
-
