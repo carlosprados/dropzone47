@@ -83,6 +83,9 @@ docker run --rm \
 Notes:
 - The image installs `ffmpeg`. No ports are exposed; the bot uses long polling.
 - Use `CLEANUP_AFTER_SEND=false` (env) to keep files in the mounted volume.
+- If you mount a host directory to `/data`, ensure the container user can write to it. Options:
+  - Run with your host UID/GID: `--user $(id -u):$(id -g)`
+  - Or relax perms on the host dir: `chmod 777 downloads` (less secure)
 
 ### Commands
 - `/downloads`: show status of your current/recent download.

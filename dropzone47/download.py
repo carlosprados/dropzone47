@@ -56,6 +56,9 @@ def safe_cleanup(paths: List[str]):
 
 def build_ydl_progress_opts(choice: str, *, max_height: int, progress_hook) -> Dict[str, Any]:
     fmt = build_format_string("video" if choice == "video" else "audio", max_height)
+    # Force yt-dlp cache under download dir to avoid permission issues in containers
+    cache_dir = os.path.join(DOWNLOAD_DIR, ".cache", "yt-dlp")
+    os.makedirs(cache_dir, exist_ok=True)
     opts: Dict[str, Any] = {
         "format": fmt,
         "outtmpl": build_outtmpl(),
@@ -68,6 +71,7 @@ def build_ydl_progress_opts(choice: str, *, max_height: int, progress_hook) -> D
         "quiet": True,
         "no_warnings": True,
         "progress_hooks": [progress_hook],
+        "cachedir": cache_dir,
     }
     if choice == "audio":
         opts.setdefault("postprocessors", []).append(
@@ -135,4 +139,3 @@ async def ytdlp_download_with_progress(
         if str(e) == "cancelled":
             raise asyncio.CancelledError()
         raise
-

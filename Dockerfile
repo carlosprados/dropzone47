@@ -3,7 +3,9 @@ FROM python:3.11-slim
 ENV PIP_NO_CACHE_DIR=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    DOWNLOAD_DIR=/data
+    DOWNLOAD_DIR=/data \
+    HOME=/home/app \
+    XDG_CACHE_HOME=/home/app/.cache
 
 WORKDIR /app
 
@@ -20,10 +22,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY dropzone47/ dropzone47/
 COPY main.py README.md pyproject.toml ./
 
-# Create non-root user and data dir
-RUN groupadd -r app && useradd -r -g app app \
-    && mkdir -p /data \
-    && chown -R app:app /app /data
+# Create non-root user and data/cache dirs
+RUN groupadd -r app \
+    && useradd -m -d /home/app -r -g app app \
+    && mkdir -p /data "$XDG_CACHE_HOME" \
+    && chown -R app:app /app /data /home/app
 USER app:app
 
 # Entrypoint
