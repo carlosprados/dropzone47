@@ -51,7 +51,15 @@ Available variables:
 python main.py
 ```
 
-5) In Telegram, send the bot a YouTube URL. You'll see title, duration and buttons to choose `audio`, `video`, or `both`. The bot uploads the actual files (not just the path) with a friendly filename.
+5) In Telegram, send the bot a YouTube URL. You'll see title, duration and buttons to choose `audio` or `video`. The bot uploads the actual files (not just the path) with a friendly filename.
+
+Project structure:
+- `dropzone47/config.py`: env/config and logging setup.
+- `dropzone47/utils.py`: filesystem and formatting helpers.
+- `dropzone47/session.py`: simple persistence and in-memory state.
+- `dropzone47/download.py`: yt-dlp format selection and download helpers.
+- `dropzone47/bot.py`: Telegram handlers and orchestration.
+- `tests/`: unit tests for helpers.
 
 ### Commands
 - `/downloads`: show status of your current/recent download.

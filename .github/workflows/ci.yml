@@ -22,6 +22,16 @@ jobs:
       - name: Install dependencies
         run: pip install -e .
 
+      - name: Lint (ruff)
+        run: |
+          pip install ruff
+          ruff check .
+
+      - name: Type-check (mypy)
+        run: |
+          pip install mypy
+          mypy .
+
       - name: Verify project imports and byte-compile
         run: |
           python - << 'PY'
@@ -33,3 +43,5 @@ jobs:
           PY
           python -m compileall -q .
 
+      - name: Run unit tests
+        run: python -m unittest discover -v
