@@ -1,0 +1,16 @@
+version: "3.8"
+
+services:
+  bot:
+    build: .
+    image: dropzone47:0.2.2
+    container_name: dropzone47
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - DOWNLOAD_DIR=/data
+    volumes:
+      - ./downloads:/data
+    user: "${UID:-1000}:${GID:-1000}"
+

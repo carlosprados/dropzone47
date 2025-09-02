@@ -89,6 +89,36 @@ Notes:
   - Or relax perms on the host dir: `chmod 777 downloads` (less secure)
   - The bot writes temporary cache under `/data/.cache/yt-dlp` by default.
 
+### Docker Compose
+
+1) Ensure `.env` contains your bot token (and any overrides):
+
+```
+TELEGRAM_BOT_TOKEN=123456:ABC...
+# Optional: override size or quality
+# TELEGRAM_MAX_MB=1900
+# MAX_HEIGHT=720
+# CLEANUP_AFTER_SEND=false
+
+# For Linux: map your user/group to avoid permission issues on ./downloads
+UID=$(id -u)
+GID=$(id -g)
+```
+
+2) Start with Compose:
+
+```
+docker compose up -d --build
+```
+
+3) Logs and lifecycle:
+
+```
+docker compose logs -f
+docker compose stop
+docker compose down
+```
+
 ### Commands
 - `/downloads`: show status of your current/recent download.
 - `/cancel`: cancel the in-progress download (if any).
