@@ -61,6 +61,29 @@ Project structure:
 - `dropzone47/bot.py`: Telegram handlers and orchestration.
 - `tests/`: unit tests for helpers.
 
+## Docker
+
+Build the image:
+
+```
+docker build -t dropzone47:0.2.0 .
+```
+
+Run the bot (mount a host folder for downloads and pass the token):
+
+```
+docker run --rm \
+  -e TELEGRAM_BOT_TOKEN=123456:ABC... \
+  -e DOWNLOAD_DIR=/data \
+  -v $(pwd)/downloads:/data \
+  --name dropzone47 \
+  dropzone47:0.2.0
+```
+
+Notes:
+- The image installs `ffmpeg`. No ports are exposed; the bot uses long polling.
+- Use `CLEANUP_AFTER_SEND=false` (env) to keep files in the mounted volume.
+
 ### Commands
 - `/downloads`: show status of your current/recent download.
 - `/cancel`: cancel the in-progress download (if any).
