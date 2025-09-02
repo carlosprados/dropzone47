@@ -66,7 +66,7 @@ Project structure:
 Build the image:
 
 ```
-docker build -t dropzone47:0.2.1 .
+docker build -t dropzone47:0.2.2 .
 ```
 
 Run the bot (mount a host folder for downloads and pass the token):
@@ -78,7 +78,7 @@ docker run --rm \
   -v $(pwd)/downloads:/data \
   --user $(id -u):$(id -g) \
   --name dropzone47 \
-  dropzone47:0.2.1
+  dropzone47:0.2.2
 ```
 
 Notes:
