@@ -1,12 +1,29 @@
 import os
 import shutil
 from typing import Optional
+from urllib.parse import urlparse
 
 from .config import DOWNLOAD_DIR
 
 
 def ensure_download_dir() -> None:
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+
+
+def user_download_dir(user_id: int) -> str:
+    """Per-user download directory to avoid cross-user file collisions."""
+    path = os.path.join(DOWNLOAD_DIR, str(user_id))
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def is_valid_url(text: str) -> bool:
+    """True if text is a well-formed http(s) URL."""
+    try:
+        parsed = urlparse(text.strip())
+    except ValueError:
+        return False
+    return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 
 def humanize_duration(seconds: Optional[int]) -> str:
