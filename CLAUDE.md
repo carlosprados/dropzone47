@@ -35,16 +35,20 @@ Requires **FFmpeg on PATH** (merges video+audio, extracts MP3). The Docker image
 
 Thin entrypoint `main.py` → `dropzone47.bot.run()`. The package is split by responsibility; the request flow crosses several modules:
 
-1. **`config.py`** — loads `.env` (via `python-dotenv`), exposes all tunables as module-level constants (`TELEGRAM_TOKEN`, `DOWNLOAD_DIR`, `TELEGRAM_MAX_MB`, `MAX_HEIGHT`, `AUDIO_KBITRATE`, `CLEANUP_AFTER_SEND`, …) and sets up logging. Import config values, don't re-read `os.getenv`.
-2. **`bot.py`** — all Telegram handlers and orchestration. Flow: user sends URL → `handle_url` fetches metadata (no download) and stores a session → inline buttons → `handle_choice` spawns `download_and_send_task` as an `asyncio.create_task` → that task downloads, applies size fallbacks, and uploads. Commands: `/start`, `/downloads`, `/cancel`, `/clear_downloads`.
-3. **`download.py`** — all `yt-dlp` interaction: format-string building, options, the progress hook, output-file discovery/selection, cleanup. `ytdlp_download_with_progress` runs the blocking `YoutubeDL.download` in a thread executor.
-4. **`session.py`** — two in-memory dicts keyed by `user_id`: `user_sessions` (pending URL+metadata) and `user_downloads` (task state). `shelve` gives minimal disk persistence for `user_sessions` to survive restarts.
-5. **`utils.py`** — pure helpers (duration/size formatting, disk-space check, dir creation). These are what the unit tests cover.
+1. **`config.py`** — loads `.env` (via `python-dotenv`), exposes all tunables as module-level constants (`TELEGRAM_TOKEN`, `DOWNLOAD_DIR`, `TELEGRAM_MAX_MB`, `MAX_HEIGHT`, `VIDEO_HEIGHT_LADDER`, `AUDIO_KBITRATE`, `CLEANUP_AFTER_SEND`, `MAX_CONCURRENT_DOWNLOADS`, `RATE_LIMIT_MAX/WINDOW`, `BOT_LANG`, …) and sets up logging. Import config values, don't re-read `os.getenv`.
+2. **`bot.py`** — all Telegram handlers and orchestration. Flow: user sends URL → `handle_url` fetches metadata (no download) and stores a session → inline buttons → `handle_choice` (rate-limit check) spawns `download_and_send_task` as an `asyncio.create_task` → that task waits for a global download slot, downloads, applies size fallbacks, and uploads. Commands: `/start`, `/downloads`, `/cancel`, `/clear_downloads`.
+3. **`download.py`** — all `yt-dlp` interaction: format-string building, options, the progress hook, output-file discovery/selection, the resolution ladder, cleanup. `ytdlp_download_with_progress` runs the blocking `YoutubeDL.download` in a thread executor.
+4. **`session.py`** — two in-memory dicts keyed by `user_id`: `user_sessions` (pending URL+metadata) and `user_downloads` (task state). SQLite (`<SESSIONS_DB>.sqlite3`) persists `user_sessions` across restarts; the interface is `load/save/delete_session`.
+5. **`utils.py`** — pure helpers (duration/size formatting, disk-space check, URL validation, per-user dir). Heavily unit-tested.
+6. **`i18n.py`** — `MESSAGES` catalog (en/es) + `t(key, **kwargs)`; language from `BOT_LANG`. All user-facing strings go through `t()`; logs/exceptions stay English.
+7. **`ratelimit.py`** — `RateLimiter` sliding-window quota keyed by user id (used per-user in `handle_choice`).
 
-### Concurrency & cancellation model
+### Concurrency, queue & cancellation model
 
+- **Global concurrency cap**: a lazily-created `asyncio.Semaphore(MAX_CONCURRENT_DOWNLOADS)` (`_slots()` in `bot.py`). `download_and_send_task` acquires it with `async with`; while waiting the task stays `queued` — this is the explicit queue.
 - **One active download per user.** `handle_choice` refuses a new request if the user's task status is in `{queued, downloading, sending}`.
-- The download runs in a thread executor. Cancellation is cooperative: `/cancel` sets `task["cancel"] = True` and calls `async_task.cancel()`. The **progress hook** checks that flag and raises `RuntimeError("cancelled")`, which `ytdlp_download_with_progress` re-raises as `asyncio.CancelledError`. So cancellation only takes effect on the next progress callback.
+- **Per-user rate limit**: `handle_choice` calls `_rate_limiter.allow(user_id)` before queueing.
+- The download runs in a thread executor. Cancellation is **cooperative and flag-only**: `/cancel` sets `task["cancel"] = True`; the **progress hook** checks it and raises `RuntimeError("cancelled")`, re-raised as `asyncio.CancelledError`. It takes effect on the next progress callback (and is checked once right after acquiring the slot). We do NOT call `async_task.cancel()`.
 - The sync progress hook (runs in the executor thread) schedules caption edits on the loop with `loop.call_soon_threadsafe(asyncio.create_task, coro)`. Keep hook work non-blocking and loop-safe.
 
 ### Size-aware fallbacks (the core UX logic, in `download_and_send_task`)
@@ -66,11 +70,10 @@ Files are written to a **per-user directory** `DOWNLOAD_DIR/<user_id>/` (via `us
 - **Cancellation is flag-only**: `/cancel` sets `task["cancel"]` and the yt-dlp progress hook aborts the thread. Do NOT call `async_task.cancel()` — it races the executor thread and adds no benefit.
 - Handlers guard `update.effective_message` / `callback_query` for `None`, and narrow `query.message` with `isinstance(..., Message)` (it may be a `MaybeInaccessibleMessage`). Keep those guards when adding handlers.
 - `CLEANUP_AFTER_SEND` gates `safe_cleanup`; set `false` to keep files in the mounted volume.
-- CI (`.github/workflows`) runs ruff + mypy (strict-ish: `disallow_untyped_defs`) + import check + `unittest`. **Type all new defs** (including test methods) and keep lines ≤100 cols. `tests/` needs `__init__.py` for `unittest discover` to find tests from the repo root.
+- **All user-facing strings go through `i18n.t()`** — add new ones to BOTH `en` and `es` catalogs (a test enforces matching keys). Logs and exception messages stay English.
+- CI (`.github/workflows`) runs ruff + mypy (strict-ish: `disallow_untyped_defs`) + import check + `unittest`. **Type all new defs** (including test methods) and keep lines ≤100 cols. `tests/` needs `__init__.py` for `unittest discover` to find tests from the repo root. `i18n.py` is exempt from `E501` (per-file-ignore) because the catalog is long single-line templates.
 
 ## Known limitations (not yet addressed)
 
-- No rate limiting / per-chat quotas — the bot can be abused if exposed publicly.
-- `shelve` persistence is single-process only; not safe for concurrent/multi-worker deployment.
-- Only one active download per user; no explicit queue.
-- No i18n — user-facing strings are English only.
+- SQLite session store is single-process; not safe for multi-worker deployment.
+- No abuse controls beyond the per-user rate limit (e.g. no global quota or ban list).

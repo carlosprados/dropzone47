@@ -6,7 +6,20 @@
 
 > Fast, size‑aware YouTube downloader bot for Telegram. Shows progress, supports cancel, and uploads real files with friendly filenames.
 
-Telegram bot to download YouTube content and send audio/video to the chat with size controls, configurable download folder, lightweight session persistence, visible progress (percent, speed, ETA), and cancel support.
+Telegram bot to download YouTube content and send audio/video to the chat with size controls, a configurable download folder, SQLite session persistence, visible progress (percent, speed, ETA), and cancel support.
+
+## Features
+
+- **Audio (MP3) or video (MP4)** selection via inline buttons.
+- **Size-aware fallbacks**: steps down a configurable video resolution ladder and lowers audio bitrate to fit Telegram's size limit.
+- **Live progress**: percent, speed and ETA in the message caption.
+- **Cancel & manage**: `/cancel`, `/downloads`, `/clear_downloads`.
+- **Per-user isolation**: each user's files live under their own directory.
+- **Concurrency cap + queue**: a global limit on simultaneous downloads; extra requests wait for a slot.
+- **Per-user rate limiting**: a quota of downloads per time window.
+- **Input safety**: only valid http(s) URLs; playlists are not expanded.
+- **i18n**: user-facing messages in English or Spanish (`BOT_LANG`).
+- **SQLite persistence**: sessions survive restarts.
 
 ## Requirements
 
@@ -36,7 +49,11 @@ Available variables:
 - `SOCKET_TIMEOUT`: network timeout for `yt-dlp` (s). Default `30`.
 - `YTDLP_RETRIES`: retry count for `yt-dlp`. Default `3`.
 - `CLEANUP_AFTER_SEND`: whether to delete files after sending (`true`/`false`). In `.env.example` it's `false` to keep files.
-- `SESSIONS_DB`: base path for `shelve` persistence. Default `./downloads/sessions`.
+- `MAX_CONCURRENT_DOWNLOADS`: max downloads running at once across all users; the rest queue. Default `2`.
+- `RATE_LIMIT_MAX`: max downloads per user within `RATE_LIMIT_WINDOW`. `0` disables the quota. Default `5`.
+- `RATE_LIMIT_WINDOW`: rate-limit window in seconds. Default `3600` (1 hour).
+- `BOT_LANG`: language for user-facing messages, `en` or `es`. Default `en`. (Named `BOT_LANG`, not `LANG`, to avoid clashing with the system locale.)
+- `SESSIONS_DB`: base path for the SQLite session store; the file is `<SESSIONS_DB>.sqlite3`. Default base `./downloads/sessions`.
 - `LOG_LEVEL`: logging verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`). Default `INFO`.
 
 ## Install & Run
@@ -62,11 +79,13 @@ python main.py
 Project structure:
 
 - `dropzone47/config.py`: env/config and logging setup.
-- `dropzone47/utils.py`: filesystem and formatting helpers.
-- `dropzone47/session.py`: simple persistence and in-memory state.
-- `dropzone47/download.py`: yt-dlp format selection and download helpers.
-- `dropzone47/bot.py`: Telegram handlers and orchestration.
-- `tests/`: unit tests for helpers.
+- `dropzone47/utils.py`: filesystem, URL and formatting helpers.
+- `dropzone47/i18n.py`: message catalog and `t()` translation helper.
+- `dropzone47/ratelimit.py`: per-user sliding-window rate limiter.
+- `dropzone47/session.py`: SQLite persistence and in-memory state.
+- `dropzone47/download.py`: yt-dlp format selection, resolution ladder and download helpers.
+- `dropzone47/bot.py`: Telegram handlers, concurrency queue and orchestration.
+- `tests/`: unit tests.
 
 ## Docker
 
@@ -140,14 +159,25 @@ During the download you'll see periodic progress updates in the caption of the o
 - The bot tries to keep files under the configured size limit. If a video exceeds the limit, it steps down through the `VIDEO_HEIGHT_LADDER` resolutions until it fits (or sends best-effort if none do). For audio, it retries at a lower bitrate.
 - Only http(s) URLs are accepted; anything else gets a friendly error. Playlists are not expanded (`noplaylist`) — only the single referenced video is downloaded.
 - Downloads are stored per user under `DOWNLOAD_DIR/<user_id>/` so two users requesting the same video don't collide.
-- Sessions are stored lightly on disk to allow continuation after simple restarts. Not intended for high concurrency/multiprocessing.
+- At most `MAX_CONCURRENT_DOWNLOADS` downloads run simultaneously; further requests queue and start as slots free up. Each user may only have one active download at a time.
+- Each user is limited to `RATE_LIMIT_MAX` downloads per `RATE_LIMIT_WINDOW` seconds.
+- User-facing messages follow `BOT_LANG` (`en`/`es`); logs and code remain in English.
+- Sessions are persisted in SQLite to allow continuation after restarts. Single-process; not intended for multi-worker deployments.
 - To keep files locally, use `CLEANUP_AFTER_SEND=false`.
 
 ## Development
 
 - Main libraries: `python-telegram-bot 22.x`, `yt-dlp`, `python-dotenv`.
 - File uploads: files are opened in binary and passed as file handles to `send_audio`/`send_video`/`send_document` with an explicit `filename` to force a real upload and a visible name.
-- Uses `effective_message` and guard checks to avoid Pyright warnings around potential `None` for `update.message`/`callback_query`.
+- Uses `effective_message` and guard checks to avoid type-checker warnings around potential `None` for `update.message`/`callback_query`.
+
+Quality checks (as CI runs them):
+
+```
+ruff check .          # lint + import order
+mypy .                # strict-ish type check
+python -m unittest discover   # unit tests
+```
 
 ## FAQ
 
