@@ -18,7 +18,10 @@ from .config import (
     AUDIO_KBITRATE,
     CLEANUP_AFTER_SEND,
     DOWNLOAD_DIR,
+    MAX_CONCURRENT_DOWNLOADS,
     MAX_HEIGHT,
+    RATE_LIMIT_MAX,
+    RATE_LIMIT_WINDOW,
     TELEGRAM_MAX_MB,
     TELEGRAM_TOKEN,
     logger,
@@ -31,6 +34,8 @@ from .download import (
     video_height_ladder,
     ytdlp_download_with_progress,
 )
+from .i18n import t
+from .ratelimit import RateLimiter
 from .session import delete_session, load_session, save_session, user_downloads, user_sessions
 from .utils import (
     ensure_download_dir,
@@ -39,6 +44,18 @@ from .utils import (
     is_valid_url,
     user_download_dir,
 )
+
+# Global concurrency cap: at most MAX_CONCURRENT_DOWNLOADS downloads run at once; the
+# rest wait for a slot (an explicit queue). Created lazily to bind to the running loop.
+_download_slots: "asyncio.Semaphore | None" = None
+_rate_limiter = RateLimiter(RATE_LIMIT_MAX, RATE_LIMIT_WINDOW)
+
+
+def _slots() -> asyncio.Semaphore:
+    global _download_slots
+    if _download_slots is None:
+        _download_slots = asyncio.Semaphore(MAX_CONCURRENT_DOWNLOADS)
+    return _download_slots
 
 
 def _now() -> str:
@@ -77,7 +94,7 @@ async def send_files(
         except Exception as e:
             logger.warning("Failed to send %s: %s", path, e)
             await context.bot.send_message(
-                chat_id=chat_id, text=f"⚠️ Could not send {os.path.basename(path)}: {e}"
+                chat_id=chat_id, text=t("send_failed", name=os.path.basename(path), error=e)
             )
 
 
@@ -85,9 +102,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
     if message is None:
         return
-    await message.reply_text(
-        "Hi! I can download YouTube content for you. Send me a URL and choose audio or video."
-    )
+    await message.reply_text(t("welcome"))
 
 
 async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -98,11 +113,11 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     user_id = message.from_user.id if message.from_user else 0
 
     if not is_valid_url(url):
-        await message.reply_text("⚠️ Please send a valid http(s) URL.")
+        await message.reply_text(t("invalid_url"))
         return
 
     ensure_download_dir()
-    await message.reply_text("🔍 Fetching video info…")
+    await message.reply_text(t("fetching_info"))
 
     try:
         # Use a cache directory under DOWNLOAD_DIR to avoid $HOME perms
@@ -112,11 +127,11 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             info = ydl.extract_info(url, download=False)
     except Exception as e:
         logger.warning("Info fetch failed for %s: %s", url, e)
-        await message.reply_text("⚠️ Failed to fetch video info.")
+        await message.reply_text(t("info_failed"))
         return
 
     if info is None:
-        await message.reply_text("⚠️ Failed to fetch video info.")
+        await message.reply_text(t("info_failed"))
         return
 
     title = info.get("title") or ""
@@ -130,15 +145,12 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     save_session(user_id, user_sessions[user_id])
 
     keyboard = [
-        [InlineKeyboardButton("🎵 Audio", callback_data="audio")],
-        [InlineKeyboardButton("🎬 Video", callback_data="video")],
+        [InlineKeyboardButton(t("btn_audio"), callback_data="audio")],
+        [InlineKeyboardButton(t("btn_video"), callback_data="video")],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    caption = (
-        f"Title: {title}\nDuration: {humanize_duration(duration)}\n"
-        "What would you like to download?"
-    )
+    caption = t("choose", title=title, duration=humanize_duration(duration))
     if thumbnail:
         await message.reply_photo(photo=thumbnail, caption=caption, reply_markup=reply_markup)
     else:
@@ -185,96 +197,101 @@ async def download_and_send_task(
                 pass
 
     try:
-        task["status"] = "downloading"
-        task["updated_at"] = _now()
-        await edit_caption(f"🔽 Downloading '{title}' as {choice}…")
-
-        min_free_mb = max(TELEGRAM_MAX_MB * 2, 2000)
-        if not has_enough_space(min_free_mb):
-            raise RuntimeError("Insufficient disk space for a safe download")
-
-        if choice == "video":
-            # Step down through the resolution ladder until the file fits the size
-            # limit (or we run out of rungs, in which case we send best-effort).
-            ladder = video_height_ladder(MAX_HEIGHT)
-            files: List[str] = []
-            for i, height in enumerate(ladder):
-                if i == 0:
-                    label = "video"
-                else:
-                    label = f"video ({height}p)"
-                    await context.bot.send_message(
-                        chat_id=chat_id, text=f"⚠️ Video too large; trying {height}p…"
-                    )
-                await ytdlp_download_with_progress(
-                    url,
-                    "video",
-                    max_height=height,
-                    edit_caption_coro=edit_caption,
-                    task=task,
-                    label=label,
-                    dest_dir=dest_dir,
-                )
-                files = pick_files_for_choice(find_output_files(vid_id, dest_dir), "video")
-                if not files:
-                    raise RuntimeError("Downloaded video file not found")
-                if not _exceeds_size_limit(files):
-                    break
-                if i < len(ladder) - 1:
-                    force_remove(files)  # discard before retrying at a lower resolution
-            task.setdefault("files", []).extend(files)
-            task["status"] = "sending"
+        # Wait for a global download slot (this is the queue). While waiting the task
+        # stays "queued"; the user already saw the queued message.
+        async with _slots():
+            if task.get("cancel"):
+                raise asyncio.CancelledError()
+            task["status"] = "downloading"
             task["updated_at"] = _now()
-            await send_files(chat_id, context, title, files)
+            await edit_caption(t("downloading", title=title, choice=choice))
 
-        if choice == "audio":
-            await ytdlp_download_with_progress(
-                url,
-                "audio",
-                max_height=MAX_HEIGHT,
-                edit_caption_coro=edit_caption,
-                task=task,
-                label="audio",
-                dest_dir=dest_dir,
-            )
-            files = pick_files_for_choice(find_output_files(vid_id, dest_dir), "audio")
-            if not files:
-                raise RuntimeError("Downloaded audio file not found")
-            if _exceeds_size_limit(files):
-                await context.bot.send_message(
-                    chat_id=chat_id, text="⚠️ Audio too large; trying lower bitrate…"
-                )
-                force_remove(files)  # discard before retrying at a lower bitrate
-                kbps = min(AUDIO_KBITRATE, 96)
+            min_free_mb = max(TELEGRAM_MAX_MB * 2, 2000)
+            if not has_enough_space(min_free_mb):
+                raise RuntimeError("Insufficient disk space for a safe download")
+
+            if choice == "video":
+                # Step down through the resolution ladder until the file fits the size
+                # limit (or we run out of rungs, in which case we send best-effort).
+                ladder = video_height_ladder(MAX_HEIGHT)
+                files: List[str] = []
+                for i, height in enumerate(ladder):
+                    if i == 0:
+                        label = "video"
+                    else:
+                        label = f"video ({height}p)"
+                        await context.bot.send_message(
+                            chat_id=chat_id, text=t("video_too_large", height=height)
+                        )
+                    await ytdlp_download_with_progress(
+                        url,
+                        "video",
+                        max_height=height,
+                        edit_caption_coro=edit_caption,
+                        task=task,
+                        label=label,
+                        dest_dir=dest_dir,
+                    )
+                    files = pick_files_for_choice(find_output_files(vid_id, dest_dir), "video")
+                    if not files:
+                        raise RuntimeError("Downloaded video file not found")
+                    if not _exceeds_size_limit(files):
+                        break
+                    if i < len(ladder) - 1:
+                        force_remove(files)  # discard before retrying at a lower resolution
+                task.setdefault("files", []).extend(files)
+                task["status"] = "sending"
+                task["updated_at"] = _now()
+                await send_files(chat_id, context, title, files)
+
+            if choice == "audio":
                 await ytdlp_download_with_progress(
                     url,
                     "audio",
                     max_height=MAX_HEIGHT,
                     edit_caption_coro=edit_caption,
                     task=task,
-                    label=f"audio ({kbps}kbps)",
+                    label="audio",
                     dest_dir=dest_dir,
-                    audio_kbps=kbps,
                 )
                 files = pick_files_for_choice(find_output_files(vid_id, dest_dir), "audio")
                 if not files:
-                    raise RuntimeError("Audio file (lower bitrate) not found")
-            task.setdefault("files", []).extend(files)
-            task["status"] = "sending"
-            task["updated_at"] = _now()
-            await send_files(chat_id, context, title, files)
+                    raise RuntimeError("Downloaded audio file not found")
+                if _exceeds_size_limit(files):
+                    await context.bot.send_message(
+                        chat_id=chat_id, text=t("audio_too_large")
+                    )
+                    force_remove(files)  # discard before retrying at a lower bitrate
+                    kbps = min(AUDIO_KBITRATE, 96)
+                    await ytdlp_download_with_progress(
+                        url,
+                        "audio",
+                        max_height=MAX_HEIGHT,
+                        edit_caption_coro=edit_caption,
+                        task=task,
+                        label=f"audio ({kbps}kbps)",
+                        dest_dir=dest_dir,
+                        audio_kbps=kbps,
+                    )
+                    files = pick_files_for_choice(find_output_files(vid_id, dest_dir), "audio")
+                    if not files:
+                        raise RuntimeError("Audio file (lower bitrate) not found")
+                task.setdefault("files", []).extend(files)
+                task["status"] = "sending"
+                task["updated_at"] = _now()
+                await send_files(chat_id, context, title, files)
 
-        task["status"] = "done"
-        task["updated_at"] = _now()
-        await edit_caption(f"✅ Download completed for '{title}'")
+            task["status"] = "done"
+            task["updated_at"] = _now()
+            await edit_caption(t("completed", title=title))
     except asyncio.CancelledError:
         task["status"] = "canceled"
         task["updated_at"] = _now()
-        await edit_caption("⛔ Download canceled by user")
+        await edit_caption(t("canceled"))
     except Exception as e:
         task["status"] = "error"
         task["updated_at"] = _now()
-        await edit_caption(f"⚠️ Error: {e}")
+        await edit_caption(t("error", error=e))
     finally:
         if CLEANUP_AFTER_SEND and user_downloads.get(user_id, {}).get("files"):
             safe_cleanup(list(user_downloads[user_id]["files"]))
@@ -293,7 +310,7 @@ async def handle_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     session = user_sessions.get(user_id) or load_session(user_id)
 
     if not session:
-        await query.edit_message_text("⚠️ Session not found. Please send the URL again.")
+        await query.edit_message_text(t("session_not_found"))
         return
 
     # Old callbacks can carry an inaccessible message; bail if we can't act on it.
@@ -302,9 +319,12 @@ async def handle_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     active = user_downloads.get(user_id)
     if active and active.get("status") in {"queued", "downloading", "sending"}:
-        await query.message.reply_text(
-            "⚠️ A download is already in progress. Use /cancel to stop it."
-        )
+        await query.message.reply_text(t("already_running"))
+        return
+
+    if not _rate_limiter.allow(user_id):
+        minutes = max(1, _rate_limiter.retry_after(user_id) // 60)
+        await query.message.reply_text(t("rate_limited", minutes=minutes))
         return
 
     chat_id = query.message.chat_id
@@ -324,7 +344,9 @@ async def handle_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "created_at": _now(),
         "updated_at": _now(),
     }
-    await query.edit_message_caption(caption=f"⏳ Queued: '{session.get('title')}' as {choice}…")
+    await query.edit_message_caption(
+        caption=t("queued", title=session.get("title"), choice=choice)
+    )
 
 
 async def cmd_downloads(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -336,15 +358,17 @@ async def cmd_downloads(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
     task = user_downloads.get(user_id)
     if not task:
-        await message.reply_text("You have no recorded downloads.")
+        await message.reply_text(t("no_downloads"))
         return
-    status = task.get("status")
-    title = task.get("title")
-    choice = task.get("choice")
-    created = task.get("created_at")
-    updated = task.get("updated_at")
     await message.reply_text(
-        f"Your downloads:\n- {title} [{choice}] → {status}\nCreated: {created}\nUpdated: {updated}"
+        t(
+            "downloads_status",
+            title=task.get("title"),
+            choice=task.get("choice"),
+            status=task.get("status"),
+            created=task.get("created_at"),
+            updated=task.get("updated_at"),
+        )
     )
 
 
@@ -357,13 +381,13 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         return
     task = user_downloads.get(user_id)
     if not task or task.get("status") not in {"queued", "downloading", "sending"}:
-        await message.reply_text("There are no active downloads to cancel.")
+        await message.reply_text(t("nothing_to_cancel"))
         return
     # Cooperative cancellation: the yt-dlp progress hook observes this flag and aborts
     # the download thread cleanly. We deliberately do NOT call async_task.cancel(),
     # which would leave the executor thread running until the next hook fires anyway.
     task["cancel"] = True
-    await message.reply_text("Cancellation requested. ⏹️")
+    await message.reply_text(t("cancel_requested"))
 
 
 async def cmd_clear_downloads(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -375,7 +399,7 @@ async def cmd_clear_downloads(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     task = user_downloads.get(user_id)
     if not task:
-        await message.reply_text("There are no downloads to clear.")
+        await message.reply_text(t("nothing_to_clear"))
         return
     dest_dir = user_download_dir(user_id)
     ids: List[str] = [i for i in {task.get("id")} if i]
@@ -388,7 +412,7 @@ async def cmd_clear_downloads(update: Update, context: ContextTypes.DEFAULT_TYPE
             except Exception as e:
                 logger.warning("Failed to remove %s: %s", p, e)
     task["files"] = []
-    await message.reply_text(f"Cleanup complete. Files removed: {removed}")
+    await message.reply_text(t("cleared", removed=removed))
 
 
 def run() -> None:

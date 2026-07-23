@@ -52,6 +52,18 @@ CLEANUP_AFTER_SEND = os.getenv("CLEANUP_AFTER_SEND", "true").lower() in {
     "true",
     "yes",
 }
+
+# Max downloads running concurrently across all users; extra requests wait for a slot.
+MAX_CONCURRENT_DOWNLOADS = max(1, int(os.getenv("MAX_CONCURRENT_DOWNLOADS", "2")))
+# Per-user download quota: at most RATE_LIMIT_MAX downloads per RATE_LIMIT_WINDOW seconds.
+# Set RATE_LIMIT_MAX to 0 to disable the quota.
+RATE_LIMIT_MAX = int(os.getenv("RATE_LIMIT_MAX", "5"))
+RATE_LIMIT_WINDOW = int(os.getenv("RATE_LIMIT_WINDOW", "3600"))
+
+# User-facing language for bot messages ("en" or "es"). Note: BOT_LANG, not LANG,
+# to avoid clashing with the system locale variable.
+BOT_LANG = os.getenv("BOT_LANG", "en").strip().lower()
+
 LOG_LEVEL = _parse_log_level(os.getenv("LOG_LEVEL", "INFO"))
 
 logging.basicConfig(
