@@ -34,7 +34,8 @@ effectively required, since lux's YouTube support is unreliable).
 Entrypoint `main.go` → `cmd.Execute()` (Cobra). Config flows through Viper.
 
 - **`cmd/`** — Cobra commands: `serve` (bot), `get` (direct download), `config show`,
-  `version`. `root.go` defines persistent flags and, in `PersistentPreRunE`, copies
+  `version`, `doctor`. `serve`/`get` call `preflight(cfg)` (in `doctor.go`) first and
+  refuse to start with install help when a required tool is missing. `root.go` defines persistent flags and, in `PersistentPreRunE`, copies
   **only the flags the user actually set** into Viper (`Flags().Visit` + `v.Set`) to
   dodge the viper/pflag default-shadowing trap. Every command has `Long`+`Example` help
   so the binary is self-describing for humans and AIs.
@@ -58,6 +59,8 @@ Entrypoint `main.go` → `cmd.Execute()` (Cobra). Config flows through Viper.
 - **`internal/ratelimit`** — sliding-window `Limiter` (injectable clock for tests).
 - **`internal/i18n`** — `Translator` + `MESSAGES` catalog (en/es), fmt positional verbs.
 - **`internal/util`** — URL validation, duration/size formatting, per-user dir.
+- **`internal/deps`** — preflight: detects distro (`/etc/os-release`), checks ffmpeg/yt-dlp
+  on PATH, and renders per-distro install instructions (apt; yt-dlp via pip/uv/uvx).
 
 ### Concurrency, queue & cancellation (in `internal/bot`)
 

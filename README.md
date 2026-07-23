@@ -29,8 +29,9 @@ the size limit. Run it as a Telegram bot or download straight to disk from the C
 
 - Go 1.26+ (to build).
 - **FFmpeg** on `PATH` (merging video, extracting MP3).
-- **yt-dlp** on `PATH` for the fallback backend (strongly recommended; lux alone is
-  unreliable for YouTube).
+- **yt-dlp** on `PATH` (the default backend; lux alone is unreliable for YouTube).
+
+Run `dropzone47 doctor` to check these and get install commands for your distro.
 
 ## Install & build
 
@@ -114,9 +115,14 @@ dropzone47 get --downloader yt-dlp --max-height 480 "<url>"
 ### Other commands
 
 ```sh
+dropzone47 doctor          # check OS + ffmpeg/yt-dlp, print install help if missing
 dropzone47 config show     # print the resolved configuration (token masked)
 dropzone47 version         # version + which backends are available
 ```
+
+`serve` and `get` run the same preflight automatically and refuse to start with
+copy-paste install commands (Debian / Ubuntu / Raspbian; yt-dlp via pip, uv or uvx) when
+a required tool is missing.
 
 ## Docker
 

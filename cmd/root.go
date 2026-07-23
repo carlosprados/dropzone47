@@ -75,7 +75,7 @@ func init() {
 	pf.Int(config.KeyYtdlpRetries, 0, "yt-dlp retry count (default 3)")
 	pf.Bool(config.KeyCleanupAfterSend, false, "delete files after sending (default false)")
 
-	rootCmd.AddCommand(serveCmd, getCmd, configCmd, versionCmd)
+	rootCmd.AddCommand(serveCmd, getCmd, configCmd, versionCmd, doctorCmd)
 }
 
 // newLogger builds a slog logger at the configured level.
