@@ -27,8 +27,9 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "dropzone47",
 	Short: "Size-aware YouTube downloader — Telegram bot and CLI",
-	Long: `dropzone47 downloads YouTube audio/video using lux (pure Go) with an
-automatic fallback to yt-dlp, keeping files under Telegram's size limit.
+	Long: `dropzone47 downloads YouTube audio/video, keeping files under Telegram's
+size limit. It uses yt-dlp by default; the pure-Go lux backend is available as an
+opt-in (--downloader lux|auto), with automatic fallback to yt-dlp.
 
 Run it as a Telegram bot (serve) or download straight to disk (get).
 
@@ -61,7 +62,7 @@ func init() {
 	pf := rootCmd.PersistentFlags()
 	pf.StringVar(&cfgFile, "config", "", "config file (yaml)")
 	pf.String(config.KeyTelegramToken, "", "Telegram bot token (env DROPZONE47_TELEGRAM_TOKEN)")
-	pf.String(config.KeyDownloader, "", "download backend: lux | yt-dlp | auto (default auto)")
+	pf.String(config.KeyDownloader, "", "download backend: lux | yt-dlp | auto (default yt-dlp)")
 	pf.String(config.KeyDownloadDir, "", "directory for downloads (default ./downloads)")
 	pf.String(config.KeySessionsDB, "", "SQLite session store base path (default ./downloads/sessions)")
 	pf.String(config.KeyLogLevel, "", "log level: debug|info|warn|error (default info)")

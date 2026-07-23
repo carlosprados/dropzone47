@@ -44,8 +44,9 @@ Entrypoint `main.go` → `cmd.Execute()` (Cobra). Config flows through Viper.
   - `Downloader{ Name; FetchInfo; Fetch }`. **`Fetch` does the whole job for one request,
     including the size ladder** (video) / bitrate drop (audio). Backends: `Lux`, `Ytdlp`,
     `Auto`.
-  - `Auto` composition: metadata prefers yt-dlp; **audio → yt-dlp** (lux can't reliably
-    make MP3); **video → lux, then yt-dlp** on failure or oversize.
+  - Default backend is **yt-dlp** (lux is unreliable for YouTube). `lux`/`auto` are opt-in
+    via `--downloader`. `Auto` composition: metadata prefers yt-dlp; **audio → yt-dlp**
+    (lux can't reliably make MP3); **video → lux, then yt-dlp** on failure or oversize.
   - Filenames are controlled by us: `BuildBaseName(title,id)` = `<sanitized-title>-<id>`,
     where `id` is `StableID(url)` (YouTube id, else URL hash). Both backends write
     `<basename>.<ext>`; `FindOutputFiles(dir,id)` globs `*-<id>.*` and skips temp exts.

@@ -61,7 +61,7 @@ func SetDefaults(v *viper.Viper) {
 
 	v.SetDefault(KeyDownloadDir, "./downloads")
 	v.SetDefault(KeySessionsDB, "./downloads/sessions")
-	v.SetDefault(KeyDownloader, "auto")
+	v.SetDefault(KeyDownloader, "yt-dlp")
 	v.SetDefault(KeyLang, "en")
 	v.SetDefault(KeyLogLevel, "info")
 	v.SetDefault(KeyTelegramMaxMB, 1900)
