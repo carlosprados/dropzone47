@@ -31,6 +31,7 @@ Available variables:
 - `DOWNLOAD_DIR`: directory where downloads are stored. Default `./downloads`.
 - `TELEGRAM_MAX_MB`: max file size to send in MB. Default `1900`.
 - `MAX_HEIGHT`: max video resolution (e.g., `720`). Default `720`.
+- `VIDEO_HEIGHT_LADDER`: comma-separated resolutions (descending) tried when a video exceeds the size limit; capped at `MAX_HEIGHT`. Default `720,480,360,240`.
 - `AUDIO_KBITRATE`: MP3 audio bitrate (kbps). Default `128`.
 - `SOCKET_TIMEOUT`: network timeout for `yt-dlp` (s). Default `30`.
 - `YTDLP_RETRIES`: retry count for `yt-dlp`. Default `3`.
@@ -136,7 +137,9 @@ During the download you'll see periodic progress updates in the caption of the o
 
 ## Notes
 
-- The bot tries to keep files under the configured size limit. If a video exceeds the limit, it retries with a lower resolution (e.g., 480p). For audio, it reduces bitrate if needed.
+- The bot tries to keep files under the configured size limit. If a video exceeds the limit, it steps down through the `VIDEO_HEIGHT_LADDER` resolutions until it fits (or sends best-effort if none do). For audio, it retries at a lower bitrate.
+- Only http(s) URLs are accepted; anything else gets a friendly error. Playlists are not expanded (`noplaylist`) — only the single referenced video is downloaded.
+- Downloads are stored per user under `DOWNLOAD_DIR/<user_id>/` so two users requesting the same video don't collide.
 - Sessions are stored lightly on disk to allow continuation after simple restarts. Not intended for high concurrency/multiprocessing.
 - To keep files locally, use `CLEANUP_AFTER_SEND=false`.
 
@@ -153,6 +156,6 @@ During the download you'll see periodic progress updates in the caption of the o
 - Telegram says the file is too large. What can I do?
   - Increase `TELEGRAM_MAX_MB` within Telegram limits or let the bot retry with a lower resolution/bitrate.
 - Where are files stored?
-  - By default under `./downloads` using the template `%(title).80s-%(id)s.%(ext)s`.
+  - Under `DOWNLOAD_DIR/<user_id>/` (default base `./downloads`) using the template `%(title).80s-%(id)s.%(ext)s`.
 - I get errors about FFmpeg.
   - Ensure `ffmpeg` is installed and available on your system `PATH`.
