@@ -33,6 +33,9 @@ PATH. No network ports are opened.`,
 		if cfg.TelegramToken == "" {
 			return errors.New("telegram token required: set --telegram-token or DROPZONE47_TELEGRAM_TOKEN")
 		}
+		if err := preflight(cfg); err != nil {
+			return err
+		}
 
 		store, err := session.Open(cfg.SessionsDB)
 		if err != nil {

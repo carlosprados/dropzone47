@@ -48,6 +48,9 @@ size-limited exactly like the bot (resolution ladder for video, lower bitrate fo
 		if err := util.EnsureDir(dest); err != nil {
 			return err
 		}
+		if err := preflight(cfg); err != nil {
+			return err
+		}
 
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
