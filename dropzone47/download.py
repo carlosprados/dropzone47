@@ -16,6 +16,7 @@ from .config import (
     YTDLP_RETRIES,
     logger,
 )
+from .i18n import t
 from .utils import sizeof_fmt
 
 # Temporary/partial extensions yt-dlp writes mid-download; never a final artifact.
@@ -151,7 +152,7 @@ def make_progress_hook(
                 loop.call_soon_threadsafe(asyncio.create_task, edit_caption_coro(txt))
         elif status == "finished":
             loop.call_soon_threadsafe(
-                asyncio.create_task, edit_caption_coro(f"📦 Processing {label}…")
+                asyncio.create_task, edit_caption_coro(t("processing", label=label))
             )
 
     return hook
