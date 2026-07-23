@@ -1,9 +1,9 @@
+import asyncio
 import glob
 import os
 import time
-import asyncio
-from datetime import datetime
-from typing import Any, Dict, List
+from datetime import datetime, timezone
+from typing import Any, Callable, Dict, List
 
 from yt_dlp import YoutubeDL
 
@@ -11,15 +11,30 @@ from .config import (
     AUDIO_KBITRATE,
     CLEANUP_AFTER_SEND,
     DOWNLOAD_DIR,
-    MAX_HEIGHT,
     SOCKET_TIMEOUT,
+    VIDEO_HEIGHT_LADDER,
     YTDLP_RETRIES,
+    logger,
 )
-from .utils import ensure_download_dir, sizeof_fmt
+from .utils import sizeof_fmt
+
+# Temporary/partial extensions yt-dlp writes mid-download; never a final artifact.
+_TEMP_EXTS = (".part", ".ytdl", ".temp", ".tmp")
 
 
-def build_outtmpl() -> str:
-    return os.path.join(DOWNLOAD_DIR, "%(title).80s-%(id)s.%(ext)s")
+def build_outtmpl(dest_dir: str) -> str:
+    return os.path.join(dest_dir, "%(title).80s-%(id)s.%(ext)s")
+
+
+def video_height_ladder(max_height: int) -> List[int]:
+    """Descending, distinct video heights to try, all capped at max_height.
+
+    Always includes max_height as the first (best) rung so a size-limited retry can
+    step down through the configured ladder until the file fits.
+    """
+    rungs = {h for h in VIDEO_HEIGHT_LADDER if 0 < h <= max_height}
+    rungs.add(max_height)
+    return sorted(rungs, reverse=True)
 
 
 def build_format_string(choice: str, max_height: int) -> str:
@@ -28,9 +43,10 @@ def build_format_string(choice: str, max_height: int) -> str:
     return f"bestvideo[height<={max_height}]+bestaudio/best[height<={max_height}]/best"
 
 
-def find_output_files(video_id: str) -> List[str]:
-    pattern = os.path.join(DOWNLOAD_DIR, f"*-{video_id}.*")
-    return sorted(glob.glob(pattern))
+def find_output_files(video_id: str, dest_dir: str) -> List[str]:
+    pattern = os.path.join(dest_dir, f"*-{video_id}.*")
+    files = glob.glob(pattern)
+    return sorted(p for p in files if not p.lower().endswith(_TEMP_EXTS))
 
 
 def pick_files_for_choice(files: List[str], choice: str) -> List[str]:
@@ -44,25 +60,44 @@ def pick_files_for_choice(files: List[str], choice: str) -> List[str]:
     return []
 
 
-def safe_cleanup(paths: List[str]):
+def safe_cleanup(paths: List[str]) -> None:
     if not CLEANUP_AFTER_SEND:
         return
+    force_remove(paths)
+
+
+def force_remove(paths: List[str]) -> None:
+    """Delete files unconditionally (ignoring CLEANUP_AFTER_SEND).
+
+    Used to discard a too-large artifact before retrying at a lower quality, otherwise
+    yt-dlp would see the existing output file and skip the re-download.
+    """
     for p in paths:
         try:
             os.remove(p)
-        except Exception:
+        except FileNotFoundError:
             pass
+        except OSError as e:
+            logger.warning("Failed to remove %s: %s", p, e)
 
 
-def build_ydl_progress_opts(choice: str, *, max_height: int, progress_hook) -> Dict[str, Any]:
+def build_ydl_progress_opts(
+    choice: str,
+    *,
+    max_height: int,
+    progress_hook: Callable[[Dict[str, Any]], None],
+    dest_dir: str,
+    audio_kbps: int = AUDIO_KBITRATE,
+) -> Dict[str, Any]:
     fmt = build_format_string("video" if choice == "video" else "audio", max_height)
     # Force yt-dlp cache under download dir to avoid permission issues in containers
     cache_dir = os.path.join(DOWNLOAD_DIR, ".cache", "yt-dlp")
     os.makedirs(cache_dir, exist_ok=True)
     opts: Dict[str, Any] = {
         "format": fmt,
-        "outtmpl": build_outtmpl(),
+        "outtmpl": build_outtmpl(dest_dir),
         "restrictfilenames": True,
+        "noplaylist": True,
         "socket_timeout": SOCKET_TIMEOUT,
         "retries": YTDLP_RETRIES,
         "concurrent_fragment_downloads": 3,
@@ -78,17 +113,22 @@ def build_ydl_progress_opts(choice: str, *, max_height: int, progress_hook) -> D
             {
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": "mp3",
-                "preferredquality": str(AUDIO_KBITRATE),
+                "preferredquality": str(audio_kbps),
             }
         )
     return opts
 
 
-def make_progress_hook(loop: asyncio.AbstractEventLoop, edit_caption_coro, task: Dict[str, Any], label: str):
-    state = {"last_t": 0.0, "last_pct": -1}
+def make_progress_hook(
+    loop: asyncio.AbstractEventLoop,
+    edit_caption_coro: Callable[[str], Any],
+    task: Dict[str, Any],
+    label: str,
+) -> Callable[[Dict[str, Any]], None]:
+    state: Dict[str, float] = {"last_t": 0.0, "last_pct": -1}
 
-    def hook(d: Dict[str, Any]):
-        task["updated_at"] = datetime.utcnow().isoformat(timespec="seconds")
+    def hook(d: Dict[str, Any]) -> None:
+        task["updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
         if task.get("cancel"):
             raise RuntimeError("cancelled")
         status = d.get("status")
@@ -110,7 +150,9 @@ def make_progress_hook(loop: asyncio.AbstractEventLoop, edit_caption_coro, task:
                 txt = " • ".join(parts)
                 loop.call_soon_threadsafe(asyncio.create_task, edit_caption_coro(txt))
         elif status == "finished":
-            loop.call_soon_threadsafe(asyncio.create_task, edit_caption_coro(f"📦 Processing {label}…"))
+            loop.call_soon_threadsafe(
+                asyncio.create_task, edit_caption_coro(f"📦 Processing {label}…")
+            )
 
     return hook
 
@@ -120,16 +162,24 @@ async def ytdlp_download_with_progress(
     choice: str,
     *,
     max_height: int,
-    edit_caption_coro,
+    edit_caption_coro: Callable[[str], Any],
     task: Dict[str, Any],
     label: str,
-):
+    dest_dir: str,
+    audio_kbps: int = AUDIO_KBITRATE,
+) -> None:
     loop = asyncio.get_running_loop()
     hook = make_progress_hook(loop, edit_caption_coro, task, label)
-    opts = build_ydl_progress_opts(choice, max_height=max_height, progress_hook=hook)
+    opts = build_ydl_progress_opts(
+        choice,
+        max_height=max_height,
+        progress_hook=hook,
+        dest_dir=dest_dir,
+        audio_kbps=audio_kbps,
+    )
 
-    def run():
-        ensure_download_dir()
+    def run() -> None:
+        os.makedirs(dest_dir, exist_ok=True)
         with YoutubeDL(opts) as ydl:
             ydl.download([url])
 
@@ -137,5 +187,5 @@ async def ytdlp_download_with_progress(
         await loop.run_in_executor(None, run)
     except Exception as e:
         if str(e) == "cancelled":
-            raise asyncio.CancelledError()
+            raise asyncio.CancelledError() from None
         raise

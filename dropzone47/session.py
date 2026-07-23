@@ -3,7 +3,6 @@ from typing import Any, Dict, Optional
 
 from .config import SESSIONS_DB
 
-
 # In-memory session cache (persisted minimally to disk for resilience)
 user_sessions: Dict[int, Dict[str, Any]] = {}
 
@@ -23,7 +22,7 @@ def load_session(user_id: int) -> Optional[Dict[str, Any]]:
 
 def save_session(user_id: int, data: Dict[str, Any]) -> None:
     try:
-        with shelve.open(SESSIONS_DB, writeback=True) as db:
+        with shelve.open(SESSIONS_DB) as db:
             db[str(user_id)] = data
     except Exception:
         pass
@@ -31,7 +30,7 @@ def save_session(user_id: int, data: Dict[str, Any]) -> None:
 
 def delete_session(user_id: int) -> None:
     try:
-        with shelve.open(SESSIONS_DB, writeback=True) as db:
+        with shelve.open(SESSIONS_DB) as db:
             if str(user_id) in db:
                 del db[str(user_id)]
     except Exception:
