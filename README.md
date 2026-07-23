@@ -1,191 +1,156 @@
 # dropzone47
 
-![Python](https://img.shields.io/badge/python-3.11%2B-blue)
-![python-telegram-bot](https://img.shields.io/badge/python--telegram--bot-22.x-28a745)
-![yt-dlp](https://img.shields.io/badge/yt--dlp-active-orange)
+![Go](https://img.shields.io/badge/go-1.26%2B-00ADD8)
+![lux](https://img.shields.io/badge/downloader-lux%20%2B%20yt--dlp-orange)
 
-> Fast, size‑aware YouTube downloader bot for Telegram. Shows progress, supports cancel, and uploads real files with friendly filenames.
+> Fast, size-aware YouTube downloader — a Telegram bot **and** a CLI, written in Go.
 
-Telegram bot to download YouTube content and send audio/video to the chat with size controls, a configurable download folder, SQLite session persistence, visible progress (percent, speed, ETA), and cancel support.
+dropzone47 downloads YouTube audio/video and keeps files under Telegram's size limit.
+It uses **lux** (pure Go) as the fast path and falls back to **yt-dlp** automatically
+whenever lux fails or can't fit the size limit. Run it as a Telegram bot or download
+straight to disk from the command line.
 
 ## Features
 
-- **Audio (MP3) or video (MP4)** selection via inline buttons.
-- **Size-aware fallbacks**: steps down a configurable video resolution ladder and lowers audio bitrate to fit Telegram's size limit.
-- **Live progress**: percent, speed and ETA in the message caption.
-- **Cancel & manage**: `/cancel`, `/downloads`, `/clear_downloads`.
-- **Per-user isolation**: each user's files live under their own directory.
-- **Concurrency cap + queue**: a global limit on simultaneous downloads; extra requests wait for a slot.
+- **Two interfaces**: a Telegram bot (`serve`) and a direct CLI downloader (`get`).
+- **Dual backend with fallback**: lux first (pure Go), yt-dlp as a robust safety net;
+  forceable with `--downloader lux|yt-dlp|auto`.
+- **Size-aware**: steps down a configurable resolution ladder (video) and lowers the
+  bitrate (audio) to fit `telegram-max-mb`.
+- **Concurrency queue**: a global limit on simultaneous downloads; extra requests wait.
 - **Per-user rate limiting**: a quota of downloads per time window.
-- **Input safety**: only valid http(s) URLs; playlists are not expanded.
-- **i18n**: user-facing messages in English or Spanish (`BOT_LANG`).
-- **SQLite persistence**: sessions survive restarts.
+- **Per-user isolation**: each user's files live under their own directory.
+- **Live progress**, cancel, and management commands.
+- **i18n**: English or Spanish (`--lang`).
+- **SQLite** session persistence (pure-Go driver, no cgo).
+- **Self-describing CLI**: Cobra help/examples on every command and flag.
 
 ## Requirements
 
-- Python 3.11+
-- FFmpeg installed and available in `PATH` (required for merging video and extracting audio)
+- Go 1.26+ (to build).
+- **FFmpeg** on `PATH` (merging video, extracting MP3).
+- **yt-dlp** on `PATH` for the fallback backend (strongly recommended; lux alone is
+  unreliable for YouTube).
 
-## Configuration (.env)
+## Install & build
 
-This project loads variables from a `.env` file via `python-dotenv`.
-
-1) Copy the example and edit it:
-
-```
-cp .env.example .env
-```
-
-2) Fill at least `TELEGRAM_BOT_TOKEN`.
-
-Available variables:
-
-- `TELEGRAM_BOT_TOKEN`: Telegram bot token (required).
-- `DOWNLOAD_DIR`: directory where downloads are stored. Default `./downloads`.
-- `TELEGRAM_MAX_MB`: max file size to send in MB. Default `1900`.
-- `MAX_HEIGHT`: max video resolution (e.g., `720`). Default `720`.
-- `VIDEO_HEIGHT_LADDER`: comma-separated resolutions (descending) tried when a video exceeds the size limit; capped at `MAX_HEIGHT`. Default `720,480,360,240`.
-- `AUDIO_KBITRATE`: MP3 audio bitrate (kbps). Default `128`.
-- `SOCKET_TIMEOUT`: network timeout for `yt-dlp` (s). Default `30`.
-- `YTDLP_RETRIES`: retry count for `yt-dlp`. Default `3`.
-- `CLEANUP_AFTER_SEND`: whether to delete files after sending (`true`/`false`). In `.env.example` it's `false` to keep files.
-- `MAX_CONCURRENT_DOWNLOADS`: max downloads running at once across all users; the rest queue. Default `2`.
-- `RATE_LIMIT_MAX`: max downloads per user within `RATE_LIMIT_WINDOW`. `0` disables the quota. Default `5`.
-- `RATE_LIMIT_WINDOW`: rate-limit window in seconds. Default `3600` (1 hour).
-- `BOT_LANG`: language for user-facing messages, `en` or `es`. Default `en`. (Named `BOT_LANG`, not `LANG`, to avoid clashing with the system locale.)
-- `SESSIONS_DB`: base path for the SQLite session store; the file is `<SESSIONS_DB>.sqlite3`. Default base `./downloads/sessions`.
-- `LOG_LEVEL`: logging verbosity (`DEBUG`, `INFO`, `WARNING`, `ERROR`). Default `INFO`.
-
-## Install & Run
-
-1) Create the bot with BotFather and copy the token.
-2) Set up the environment:
-
-- With `uv` (if you already use it):
-  - `uv sync`
-- With `pip`:
-  - `python -m venv .venv && source .venv/bin/activate`
-  - `pip install -e .`
-
-3) Configure `.env` (see above).
-4) Start the bot:
-
-```
-python main.py
+```sh
+go build -o dropzone47 .
+# or install to $GOBIN
+go install github.com/carlosprados/dropzone47@latest
 ```
 
-5) In Telegram, send the bot a YouTube URL. You'll see title, duration and buttons to choose `audio` or `video`. The bot uploads the actual files (not just the path) with a friendly filename.
+## Configuration
 
-Project structure:
+Precedence (low → high): **defaults < config file < environment (`DROPZONE47_*`) < flags**.
 
-- `dropzone47/config.py`: env/config and logging setup.
-- `dropzone47/utils.py`: filesystem, URL and formatting helpers.
-- `dropzone47/i18n.py`: message catalog and `t()` translation helper.
-- `dropzone47/ratelimit.py`: per-user sliding-window rate limiter.
-- `dropzone47/session.py`: SQLite persistence and in-memory state.
-- `dropzone47/download.py`: yt-dlp format selection, resolution ladder and download helpers.
-- `dropzone47/bot.py`: Telegram handlers, concurrency queue and orchestration.
-- `tests/`: unit tests.
+| Flag | Env | Default | Meaning |
+|------|-----|---------|---------|
+| `--telegram-token` | `DROPZONE47_TELEGRAM_TOKEN` | — | Bot token (required for `serve`) |
+| `--downloader` | `DROPZONE47_DOWNLOADER` | `auto` | `lux` \| `yt-dlp` \| `auto` |
+| `--download-dir` | `DROPZONE47_DOWNLOAD_DIR` | `./downloads` | Output base dir |
+| `--sessions-db` | `DROPZONE47_SESSIONS_DB` | `./downloads/sessions` | SQLite base path (`.sqlite3` appended) |
+| `--telegram-max-mb` | `DROPZONE47_TELEGRAM_MAX_MB` | `1900` | Max upload size (MB) |
+| `--max-height` | `DROPZONE47_MAX_HEIGHT` | `720` | Max video resolution |
+| `--video-height-ladder` | `DROPZONE47_VIDEO_HEIGHT_LADDER` | `720,480,360,240` | Fallback resolutions (capped at max-height) |
+| `--audio-kbitrate` | `DROPZONE47_AUDIO_KBITRATE` | `128` | MP3 bitrate (kbps) |
+| `--socket-timeout` | `DROPZONE47_SOCKET_TIMEOUT` | `30` | yt-dlp socket timeout (s) |
+| `--ytdlp-retries` | `DROPZONE47_YTDLP_RETRIES` | `3` | yt-dlp retries |
+| `--cleanup-after-send` | `DROPZONE47_CLEANUP_AFTER_SEND` | `false` | Delete files after sending |
+| `--max-concurrent` | `DROPZONE47_MAX_CONCURRENT` | `2` | Global concurrent downloads (queue) |
+| `--rate-limit-max` | `DROPZONE47_RATE_LIMIT_MAX` | `5` | Downloads per window per user (`0` disables) |
+| `--rate-limit-window` | `DROPZONE47_RATE_LIMIT_WINDOW` | `1h` | Rate-limit window (`1h`, `30m`, `3600s`) |
+| `--lang` | `DROPZONE47_LANG` | `en` | Bot language: `en` \| `es` |
+| `--log-level` | `DROPZONE47_LOG_LEVEL` | `info` | `debug`\|`info`\|`warn`\|`error` |
+
+Copy `.env.example` to `.env` for docker-compose, or pass `--config config.yaml`.
+
+## Usage
+
+The binary is self-documenting — start with `--help`:
+
+```sh
+dropzone47 --help
+dropzone47 serve --help
+dropzone47 get --help
+```
+
+### Run the bot
+
+```sh
+DROPZONE47_TELEGRAM_TOKEN=123:abc dropzone47 serve
+dropzone47 serve --lang es --max-concurrent 3 --rate-limit-max 10 --rate-limit-window 30m
+```
+
+Then in Telegram: send a URL, pick 🎵 Audio or 🎬 Video, receive the file.
+
+Bot commands: `/start`, `/downloads`, `/cancel`, `/clear_downloads`.
+
+### Download from the CLI (no Telegram)
+
+```sh
+dropzone47 get "https://youtu.be/dQw4w9WgXcQ"
+dropzone47 get --format audio -o ./music "https://youtu.be/dQw4w9WgXcQ"
+dropzone47 get --downloader yt-dlp --max-height 480 "<url>"
+```
+
+### Other commands
+
+```sh
+dropzone47 config show     # print the resolved configuration (token masked)
+dropzone47 version         # version + which backends are available
+```
 
 ## Docker
 
-Build the image:
-
-```
-docker build -t dropzone47:0.2.2 .
-```
-
-Run the bot (mount a host folder for downloads and pass the token):
-
-```
+```sh
+docker build -t dropzone47:go .
 docker run --rm \
-  -e TELEGRAM_BOT_TOKEN=123456:ABC... \
-  -e DOWNLOAD_DIR=/data \
-  -v $(pwd)/downloads:/data \
-  --user $(id -u):$(id -g) \
-  --name dropzone47 \
-  dropzone47:0.2.2
+  -e DROPZONE47_TELEGRAM_TOKEN=123:abc \
+  -v "$(pwd)/downloads:/data" \
+  --user "$(id -u):$(id -g)" \
+  dropzone47:go
 ```
 
-Notes:
-
-- The image installs `ffmpeg`. No ports are exposed; the bot uses long polling.
-- Use `CLEANUP_AFTER_SEND=false` (env) to keep files in the mounted volume.
-- If you mount a host directory to `/data`, ensure the container user can write to it. Options:
-  - Run with your host UID/GID: `--user $(id -u):$(id -g)`
-  - Or relax perms on the host dir: `chmod 777 downloads` (less secure)
-  - The bot writes temporary cache under `/data/.cache/yt-dlp` by default.
+The image bundles ffmpeg and yt-dlp. No ports are exposed (long polling).
 
 ### Docker Compose
 
-1) Ensure `.env` contains your bot token (and any overrides):
+Put your token (and any overrides) in `.env` (see `.env.example`), then:
 
-```
-TELEGRAM_BOT_TOKEN=123456:ABC...
-# Optional: override size or quality
-# TELEGRAM_MAX_MB=1900
-# MAX_HEIGHT=720
-# CLEANUP_AFTER_SEND=false
-
-# For Linux: map your user/group to avoid permission issues on ./downloads
-UID=$(id -u)
-GID=$(id -g)
-```
-
-2) Start with Compose:
-
-```
+```sh
 docker compose up -d --build
-```
-
-3) Logs and lifecycle:
-
-```
 docker compose logs -f
-docker compose stop
-docker compose down
 ```
 
-### Commands
+## How the backends compose
 
-- `/downloads`: show status of your current/recent download.
-- `/cancel`: cancel the in-progress download (if any).
-- `/clear_downloads`: delete downloaded files associated with your last download.
+- **Metadata** (`FetchInfo`): yt-dlp preferred (richer, includes duration), lux as fallback.
+- **Audio**: always yt-dlp (lux does not reliably produce MP3).
+- **Video**: lux first; if it panics/fails or the result exceeds the size limit, fall back
+  to yt-dlp and run the resolution ladder.
+- **Forced** (`--downloader lux|yt-dlp`): bypasses the composition.
 
-During the download you'll see periodic progress updates in the caption of the original message (about every 5% or 2s, whichever comes first).
-
-## Notes
-
-- The bot tries to keep files under the configured size limit. If a video exceeds the limit, it steps down through the `VIDEO_HEIGHT_LADDER` resolutions until it fits (or sends best-effort if none do). For audio, it retries at a lower bitrate.
-- Only http(s) URLs are accepted; anything else gets a friendly error. Playlists are not expanded (`noplaylist`) — only the single referenced video is downloaded.
-- Downloads are stored per user under `DOWNLOAD_DIR/<user_id>/` so two users requesting the same video don't collide.
-- At most `MAX_CONCURRENT_DOWNLOADS` downloads run simultaneously; further requests queue and start as slots free up. Each user may only have one active download at a time.
-- Each user is limited to `RATE_LIMIT_MAX` downloads per `RATE_LIMIT_WINDOW` seconds.
-- User-facing messages follow `BOT_LANG` (`en`/`es`); logs and code remain in English.
-- Sessions are persisted in SQLite to allow continuation after restarts. Single-process; not intended for multi-worker deployments.
-- To keep files locally, use `CLEANUP_AFTER_SEND=false`.
+> lux's YouTube extractor is fragile and can even panic; those panics are recovered and
+> turned into a yt-dlp fallback, so downloads keep working.
 
 ## Development
 
-- Main libraries: `python-telegram-bot 22.x`, `yt-dlp`, `python-dotenv`.
-- File uploads: files are opened in binary and passed as file handles to `send_audio`/`send_video`/`send_document` with an explicit `filename` to force a real upload and a visible name.
-- Uses `effective_message` and guard checks to avoid type-checker warnings around potential `None` for `update.message`/`callback_query`.
-
-Quality checks (as CI runs them):
-
-```
-ruff check .          # lint + import order
-mypy .                # strict-ish type check
-python -m unittest discover   # unit tests
+```sh
+go build ./...       # compile
+go vet ./...         # static checks
+gofmt -l cmd internal main.go   # formatting (should print nothing)
+go test ./...        # unit tests
 ```
 
-## FAQ
+Package layout:
 
-- Why don't I see downloaded files locally?
-  - Check `CLEANUP_AFTER_SEND`. If it's `true`, files are removed after sending. Set it to `false` to keep them.
-- Telegram says the file is too large. What can I do?
-  - Increase `TELEGRAM_MAX_MB` within Telegram limits or let the bot retry with a lower resolution/bitrate.
-- Where are files stored?
-  - Under `DOWNLOAD_DIR/<user_id>/` (default base `./downloads`) using the template `%(title).80s-%(id)s.%(ext)s`.
-- I get errors about FFmpeg.
-  - Ensure `ffmpeg` is installed and available on your system `PATH`.
+- `cmd/` — Cobra commands (`serve`, `get`, `config`, `version`) and Viper wiring.
+- `internal/config` — configuration struct and loading.
+- `internal/download` — `Downloader` interface, lux/yt-dlp/auto backends, ladder & file helpers.
+- `internal/bot` — Telegram handlers, concurrency queue, cancellation.
+- `internal/session` — SQLite session store.
+- `internal/ratelimit` — per-user sliding-window limiter.
+- `internal/i18n` — message catalog (en/es).
+- `internal/util` — URL/format/path helpers.
+- `legacy/` — the original Python implementation, kept for reference.

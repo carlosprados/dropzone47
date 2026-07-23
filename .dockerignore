@@ -1,12 +1,7 @@
 .git
 .github
-.venv
-__pycache__
-*.pyc
-*.pyo
-*.pyd
+legacy
 downloads
 *.log
 .env
-uv.lock
-
+dropzone47_logo.png
