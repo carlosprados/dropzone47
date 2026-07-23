@@ -6,9 +6,9 @@
 > Fast, size-aware YouTube downloader — a Telegram bot **and** a CLI, written in Go.
 
 dropzone47 downloads YouTube audio/video and keeps files under Telegram's size limit.
-It uses **lux** (pure Go) as the fast path and falls back to **yt-dlp** automatically
-whenever lux fails or can't fit the size limit. Run it as a Telegram bot or download
-straight to disk from the command line.
+It uses **yt-dlp** by default; the pure-Go **lux** backend is available as an opt-in
+(`--downloader lux|auto`) with automatic fallback to yt-dlp when lux fails or can't fit
+the size limit. Run it as a Telegram bot or download straight to disk from the CLI.
 
 ## Features
 
@@ -47,7 +47,7 @@ Precedence (low → high): **defaults < config file < environment (`DROPZONE47_*
 | Flag | Env | Default | Meaning |
 |------|-----|---------|---------|
 | `--telegram-token` | `DROPZONE47_TELEGRAM_TOKEN` | — | Bot token (required for `serve`) |
-| `--downloader` | `DROPZONE47_DOWNLOADER` | `auto` | `lux` \| `yt-dlp` \| `auto` |
+| `--downloader` | `DROPZONE47_DOWNLOADER` | `yt-dlp` | `lux` \| `yt-dlp` \| `auto` (lux/auto opt-in) |
 | `--download-dir` | `DROPZONE47_DOWNLOAD_DIR` | `./downloads` | Output base dir |
 | `--sessions-db` | `DROPZONE47_SESSIONS_DB` | `./downloads/sessions` | SQLite base path (`.sqlite3` appended) |
 | `--telegram-max-mb` | `DROPZONE47_TELEGRAM_MAX_MB` | `1900` | Max upload size (MB) |
@@ -125,14 +125,17 @@ docker compose logs -f
 
 ## How the backends compose
 
-- **Metadata** (`FetchInfo`): yt-dlp preferred (richer, includes duration), lux as fallback.
-- **Audio**: always yt-dlp (lux does not reliably produce MP3).
-- **Video**: lux first; if it panics/fails or the result exceeds the size limit, fall back
-  to yt-dlp and run the resolution ladder.
-- **Forced** (`--downloader lux|yt-dlp`): bypasses the composition.
+The default backend is **yt-dlp** (reliable). Choose `--downloader auto` (or `lux`) to
+opt into the pure-Go path:
+
+- **`yt-dlp`** (default): everything via yt-dlp.
+- **`auto`**: metadata & audio via yt-dlp; video via lux, falling back to yt-dlp on
+  failure/oversize (and running the resolution ladder there).
+- **`lux`**: force lux for everything (least reliable for YouTube).
 
 > lux's YouTube extractor is fragile and can even panic; those panics are recovered and
-> turned into a yt-dlp fallback, so downloads keep working.
+> turned into a yt-dlp fallback (in `auto`), so downloads keep working. That fragility is
+> why the default is yt-dlp.
 
 ## Development
 

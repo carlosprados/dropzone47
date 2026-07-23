@@ -23,7 +23,7 @@ func TestLoadDefaultsAndClamps(t *testing.T) {
 	v := viper.New()
 	SetDefaults(v)
 	cfg := Load(v)
-	if cfg.Downloader != "auto" || cfg.MaxHeight != 720 || cfg.TelegramMaxMB != 1900 {
+	if cfg.Downloader != "yt-dlp" || cfg.MaxHeight != 720 || cfg.TelegramMaxMB != 1900 {
 		t.Fatalf("unexpected defaults: %+v", cfg)
 	}
 	if !reflect.DeepEqual(cfg.VideoHeightLadder, []int{720, 480, 360, 240}) {
