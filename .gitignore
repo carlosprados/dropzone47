@@ -9,6 +9,10 @@ wheels/
 # Virtual environments
 .venv
 
+# Go build output
+/dropzone47
+dist/
+
 # Local environment & artifacts
 .env
 downloads/

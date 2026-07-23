@@ -40,6 +40,23 @@ go build -o dropzone47 .
 go install github.com/carlosprados/dropzone47@latest
 ```
 
+### Cross-compilation with `just`
+
+A [`Justfile`](./Justfile) builds static binaries (CGO disabled) for Intel and Raspberry
+Pi. Run `just` to list recipes.
+
+```sh
+just build-amd64   # Intel / AMD 64-bit Linux        -> dist/dropzone47-linux-amd64
+just build-arm64   # Raspberry Pi 64-bit (Pi 3/4/5)  -> dist/dropzone47-linux-arm64
+just build-armv7   # Raspberry Pi 32-bit OS (armv7)  -> dist/dropzone47-linux-armv7
+just build-all     # all of the above
+just check         # gofmt + vet + tests (what CI runs)
+```
+
+Pick `arm64` for a 64-bit Raspberry Pi OS (the common case on Pi 3/4/5) and `armv7` for a
+32-bit OS. The binaries are statically linked — copy one to the Pi and run it (ffmpeg and
+yt-dlp still need to be installed there).
+
 ## Configuration
 
 Precedence (low → high): **defaults < config file < environment (`DROPZONE47_*`) < flags**.
